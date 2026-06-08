@@ -1,0 +1,75 @@
+name: Build ShahiidAnime APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+        with:
+          path: custom-repo
+
+      - name: Checkout Keiyoushi extensions-source
+        uses: actions/checkout@v4
+        with:
+          repository: keiyoushi/extensions-source
+          path: extensions-source
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Extract uploaded ZIP and copy extension
+        run: |
+          set -e
+
+          cd custom-repo
+
+          ZIP_FILE="$(find . -maxdepth 1 -type f -name '*.zip' | head -n 1)"
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "No ZIP file found. Upload shahiidanime-extension-phone-build.zip to the repository root."
+            exit 1
+          fi
+
+          echo "Using ZIP: $ZIP_FILE"
+
+          rm -rf extracted
+          mkdir extracted
+          unzip -q "$ZIP_FILE" -d extracted
+
+          BUILD_FILE="$(find extracted -path '*/src/ar/shahiidanime/build.gradle' | head -n 1)"
+
+          if [ -z "$BUILD_FILE" ]; then
+            echo "Could not find src/ar/shahiidanime/build.gradle inside the ZIP."
+            exit 1
+          fi
+
+          EXT_DIR="$(dirname "$BUILD_FILE")"
+
+          rm -rf ../extensions-source/src/ar/shahiidanime
+          mkdir -p ../extensions-source/src/ar
+          cp -R "$EXT_DIR" ../extensions-source/src/ar/shahiidanime
+
+      - name: Build debug APK
+        working-directory: extensions-source
+        run: ./gradlew src:ar:shahiidanime:assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: shahiidanime-debug-apk
+          path: extensions-source/src/ar/shahiidanime/build/outputs/apk/**/*.apk
+          if-no-files-found: error
