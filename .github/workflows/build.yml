@@ -43,7 +43,11 @@ jobs:
           rm -rf work
           mkdir -p work
 
-          ZIP_FILE="$(find custom-repo -type f -iname '*.zip' | head -n 1 || true)"
+          ZIP_FILE="$(find custom-repo -maxdepth 1 -type f -iname '*.zip' | sort | head -n 1 || true)"
+
+          if [ -z "$ZIP_FILE" ]; then
+            ZIP_FILE="$(find custom-repo -type f -iname '*.zip' | sort | head -n 1 || true)"
+          fi
 
           if [ -n "$ZIP_FILE" ]; then
             echo "Found ZIP file: $ZIP_FILE"
@@ -57,8 +61,10 @@ jobs:
 
           if [ -z "$BUILD_FILE" ]; then
             echo "::error::Could not find src/ar/shahiidanime/build.gradle"
-            echo "Upload shahiidanime-extension-phone-build.zip, or upload the src folder."
+            echo "Upload the extension ZIP to the repository main page."
+            echo "Current repository tree:"
             find custom-repo -maxdepth 8 -print | sort
+            echo "Extracted tree:"
             find work -maxdepth 8 -print | sort
             exit 1
           fi
@@ -73,13 +79,57 @@ jobs:
           echo "Copied extension files:"
           find extensions-source/src/ar/shahiidanime -maxdepth 8 -print | sort
 
+      - name: Patch Kotlin source for current Keiyoushi API
+        run: |
+          set -e
+
+          KOTLIN_FILE="extensions-source/src/ar/shahiidanime/src/eu/kanade/tachiyomi/extension/ar/shahiidanime/ShahiidAnime.kt"
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("extensions-source/src/ar/shahiidanime/src/eu/kanade/tachiyomi/extension/ar/shahiidanime/ShahiidAnime.kt")
+          s = p.read_text(encoding="utf-8")
+
+          s = s.replace("import okhttp3.Headers\n", "")
+
+          old = '''    override val headers: Headers = headersBuilder()
+                  .add("Accept-Language", "ar,en-US;q=0.8,en;q=0.5")
+                  .build()
+          '''
+
+          new = '''    override fun headersBuilder() = super.headersBuilder()
+                  .add("Accept-Language", "ar,en-US;q=0.8,en;q=0.5")
+                  .add("Referer", "$baseUrl/")
+          '''
+
+          s = s.replace(old, new)
+
+          old2 = '''    override val headers: Headers = headersBuilder()
+              .add("Accept-Language", "ar,en-US;q=0.8,en;q=0.5")
+              .build()
+          '''
+
+          new2 = '''    override fun headersBuilder() = super.headersBuilder()
+              .add("Accept-Language", "ar,en-US;q=0.8,en;q=0.5")
+              .add("Referer", "$baseUrl/")
+          '''
+
+          s = s.replace(old2, new2)
+
+          p.write_text(s, encoding="utf-8")
+          PY
+
+          echo "Header lines after patch:"
+          grep -n "headersBuilder\|Headers" "$KOTLIN_FILE" || true
+
       - name: Apply Kotlin formatting
         working-directory: extensions-source
         run: ./gradlew src:ar:shahiidanime:spotlessApply
 
       - name: Build debug APK
         working-directory: extensions-source
-        run: ./gradlew src:ar:shahiidanime:assembleDebug
+        run: ./gradlew src:ar:shahiidanime:assembleDebug --stacktrace
 
       - name: Show APK files
         if: always()
