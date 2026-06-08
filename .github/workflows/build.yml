@@ -1,4 +1,4 @@
-name: Build ShahiidAnime APK
+name: Build ShahiidAnime Aniyomi APK
 
 on:
   workflow_dispatch:
@@ -21,11 +21,11 @@ jobs:
           echo "Repository files:"
           find custom-repo -maxdepth 8 -print | sort
 
-      - name: Checkout Keiyoushi extensions-source
+      - name: Checkout Yuzono anime-extensions
         uses: actions/checkout@v4
         with:
-          repository: keiyoushi/extensions-source
-          path: extensions-source
+          repository: yuzono/anime-extensions
+          path: anime-extensions
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -36,108 +36,63 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Find and copy ShahiidAnime extension
+      - name: Find and copy ShahiidAnime Aniyomi extension
         run: |
           set -e
 
           rm -rf work
           mkdir -p work
 
-          ZIP_FILE="$(find custom-repo -maxdepth 1 -type f -iname '*.zip' | sort | head -n 1 || true)"
+          ZIP_FILE="$(find custom-repo -maxdepth 1 -type f -iname '*aniyomi*.zip' | sort | head -n 1 || true)"
 
           if [ -z "$ZIP_FILE" ]; then
-            ZIP_FILE="$(find custom-repo -type f -iname '*.zip' | sort | head -n 1 || true)"
+            echo "::error::No Aniyomi ZIP file found in repository root. Upload shahiidanime-aniyomi-phone-build.zip beside README.md."
+            find custom-repo -maxdepth 3 -print | sort
+            exit 1
           fi
 
-          if [ -n "$ZIP_FILE" ]; then
-            echo "Found ZIP file: $ZIP_FILE"
-            unzip -q "$ZIP_FILE" -d work
-          else
-            echo "No ZIP file found. Trying repository files directly."
-            cp -R custom-repo work/repo
-          fi
+          echo "Found ZIP file: $ZIP_FILE"
+          unzip -q "$ZIP_FILE" -d work
 
-          BUILD_FILE="$(find work custom-repo -path '*/src/ar/shahiidanime/build.gradle' | head -n 1 || true)"
+          BUILD_FILE="$(find work -path '*/src/ar/shahiidanime/build.gradle' | head -n 1 || true)"
 
           if [ -z "$BUILD_FILE" ]; then
-            echo "::error::Could not find src/ar/shahiidanime/build.gradle"
-            echo "Upload the extension ZIP to the repository main page."
-            echo "Current repository tree:"
-            find custom-repo -maxdepth 8 -print | sort
-            echo "Extracted tree:"
+            echo "::error::Could not find src/ar/shahiidanime/build.gradle inside the Aniyomi ZIP."
             find work -maxdepth 8 -print | sort
             exit 1
           fi
 
           EXT_DIR="$(dirname "$BUILD_FILE")"
-          echo "Using extension directory: $EXT_DIR"
+          KOTLIN_FILE="$EXT_DIR/src/eu/kanade/tachiyomi/animeextension/ar/shahiidanime/ShahiidAnime.kt"
 
-          rm -rf extensions-source/src/ar/shahiidanime
-          mkdir -p extensions-source/src/ar
-          cp -R "$EXT_DIR" extensions-source/src/ar/shahiidanime
+          if [ ! -f "$KOTLIN_FILE" ]; then
+            echo "::error::This does not look like an Aniyomi extension. Missing animeextension package file."
+            find "$EXT_DIR" -maxdepth 8 -print | sort
+            exit 1
+          fi
+
+          rm -rf anime-extensions/src/ar/shahiidanime
+          mkdir -p anime-extensions/src/ar
+          cp -R "$EXT_DIR" anime-extensions/src/ar/shahiidanime
 
           echo "Copied extension files:"
-          find extensions-source/src/ar/shahiidanime -maxdepth 8 -print | sort
-
-      - name: Patch Kotlin source for current Keiyoushi API
-        run: |
-          set -e
-
-          KOTLIN_FILE="extensions-source/src/ar/shahiidanime/src/eu/kanade/tachiyomi/extension/ar/shahiidanime/ShahiidAnime.kt"
-
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path("extensions-source/src/ar/shahiidanime/src/eu/kanade/tachiyomi/extension/ar/shahiidanime/ShahiidAnime.kt")
-          s = p.read_text(encoding="utf-8")
-
-          s = s.replace("import okhttp3.Headers\n", "")
-
-          old = '''    override val headers: Headers = headersBuilder()
-                  .add("Accept-Language", "ar,en-US;q=0.8,en;q=0.5")
-                  .build()
-          '''
-
-          new = '''    override fun headersBuilder() = super.headersBuilder()
-                  .add("Accept-Language", "ar,en-US;q=0.8,en;q=0.5")
-                  .add("Referer", "$baseUrl/")
-          '''
-
-          s = s.replace(old, new)
-
-          old2 = '''    override val headers: Headers = headersBuilder()
-              .add("Accept-Language", "ar,en-US;q=0.8,en;q=0.5")
-              .build()
-          '''
-
-          new2 = '''    override fun headersBuilder() = super.headersBuilder()
-              .add("Accept-Language", "ar,en-US;q=0.8,en;q=0.5")
-              .add("Referer", "$baseUrl/")
-          '''
-
-          s = s.replace(old2, new2)
-
-          p.write_text(s, encoding="utf-8")
-          PY
-
-          echo "Header lines after patch:"
-          grep -n "headersBuilder\|Headers" "$KOTLIN_FILE" || true
+          find anime-extensions/src/ar/shahiidanime -maxdepth 8 -print | sort
 
       - name: Apply Kotlin formatting
-        working-directory: extensions-source
+        working-directory: anime-extensions
         run: ./gradlew src:ar:shahiidanime:spotlessApply
 
       - name: Build debug APK
-        working-directory: extensions-source
+        working-directory: anime-extensions
         run: ./gradlew src:ar:shahiidanime:assembleDebug --stacktrace
 
       - name: Show APK files
         if: always()
-        run: find extensions-source/src/ar/shahiidanime/build/outputs -type f | sort || true
+        run: find anime-extensions/src/ar/shahiidanime/build/outputs -type f | sort || true
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: shahiidanime-debug-apk
-          path: extensions-source/src/ar/shahiidanime/build/outputs/apk/**/*.apk
+          name: shahiidanime-aniyomi-debug-apk
+          path: anime-extensions/src/ar/shahiidanime/build/outputs/apk/**/*.apk
           if-no-files-found: error
