@@ -16,6 +16,11 @@ jobs:
         with:
           path: custom-repo
 
+      - name: Show repository files
+        run: |
+          echo "Repository files:"
+          find custom-repo -maxdepth 8 -print | sort
+
       - name: Checkout Keiyoushi extensions-source
         uses: actions/checkout@v4
         with:
@@ -31,43 +36,56 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Extract uploaded ZIP and copy extension
+      - name: Find and copy ShahiidAnime extension
         run: |
           set -e
 
-          cd custom-repo
+          rm -rf work
+          mkdir -p work
 
-          ZIP_FILE="$(find . -maxdepth 1 -type f -name '*.zip' | head -n 1)"
+          ZIP_FILE="$(find custom-repo -type f -iname '*.zip' | head -n 1 || true)"
 
-          if [ -z "$ZIP_FILE" ]; then
-            echo "No ZIP file found. Upload shahiidanime-extension-phone-build.zip to the repository root."
-            exit 1
+          if [ -n "$ZIP_FILE" ]; then
+            echo "Found ZIP file: $ZIP_FILE"
+            unzip -q "$ZIP_FILE" -d work
+          else
+            echo "No ZIP file found. Trying repository files directly."
+            cp -R custom-repo work/repo
           fi
 
-          echo "Using ZIP: $ZIP_FILE"
-
-          rm -rf extracted
-          mkdir extracted
-          unzip -q "$ZIP_FILE" -d extracted
-
-          BUILD_FILE="$(find extracted -path '*/src/ar/shahiidanime/build.gradle' | head -n 1)"
+          BUILD_FILE="$(find work custom-repo -path '*/src/ar/shahiidanime/build.gradle' | head -n 1 || true)"
 
           if [ -z "$BUILD_FILE" ]; then
-            echo "Could not find src/ar/shahiidanime/build.gradle inside the ZIP."
+            echo "::error::Could not find src/ar/shahiidanime/build.gradle"
+            echo "Upload shahiidanime-extension-phone-build.zip, or upload the src folder."
+            find custom-repo -maxdepth 8 -print | sort
+            find work -maxdepth 8 -print | sort
             exit 1
           fi
 
           EXT_DIR="$(dirname "$BUILD_FILE")"
+          echo "Using extension directory: $EXT_DIR"
 
-          rm -rf ../extensions-source/src/ar/shahiidanime
-          mkdir -p ../extensions-source/src/ar
-          cp -R "$EXT_DIR" ../extensions-source/src/ar/shahiidanime
+          rm -rf extensions-source/src/ar/shahiidanime
+          mkdir -p extensions-source/src/ar
+          cp -R "$EXT_DIR" extensions-source/src/ar/shahiidanime
+
+          echo "Copied extension files:"
+          find extensions-source/src/ar/shahiidanime -maxdepth 8 -print | sort
+
+      - name: Apply Kotlin formatting
+        working-directory: extensions-source
+        run: ./gradlew src:ar:shahiidanime:spotlessApply
 
       - name: Build debug APK
         working-directory: extensions-source
         run: ./gradlew src:ar:shahiidanime:assembleDebug
 
-      - name: Upload APK
+      - name: Show APK files
+        if: always()
+        run: find extensions-source/src/ar/shahiidanime/build/outputs -type f | sort || true
+
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: shahiidanime-debug-apk
